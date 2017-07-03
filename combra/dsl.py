@@ -18,7 +18,7 @@ class OverrideAssignmentOp(ast.NodeTransformer):
                                  func=ast.Name(lineno=cmp_node.lineno,
                                                col_offset=0,
                                                ctx=ast.Load(),
-                                               id='__assign__'),
+                                               id='__comba__assign__'),
                                  args=[cmp_node.left,
                                        cmp_node.comparators[0]],
                                  starargs=None,
@@ -31,16 +31,12 @@ class OverrideAssignmentOp(ast.NodeTransformer):
 class WithAssign:
     def assign(self, that): raise NotImplementedError()
 
-def __assign__(a, b):
+def __comba__assign__(a, b):
     if isinstance(a, WithAssign): return a.assign(b)
-    else: return a <= b
+    return a <= b
 
-
-def assign_stack_mod(glob, loc): pass
-    
-    
 mod_ast_modifiers = [OverrideAssignmentOp()]
-mod_stack_modifiers = [assign_stack_mod]
+mod_ast_global_modifiers = [(__comba__assign__, '__comba__assign__')]
 mod_ast_re_indent = re.compile(r'( *).+')
 def mod_ast(func):
     src, line_num = inspect.getsourcelines(func)
@@ -64,6 +60,9 @@ def mod_ast(func):
     # remove the first decorator applied, presumably this one
     a.body[0].decorator_list = a.body[0].decorator_list[:-1]
 
+    # # inherit caller locals callback
+    # mod_ast_inherit_locals(a.body[0])
+
     for mod in mod_ast_modifiers: a = mod.visit(a)
 
     print('ast')
@@ -76,9 +75,18 @@ def mod_ast(func):
     caller_globals = inspect.stack()[1][0].f_globals
     caller_locals = inspect.stack()[1][0].f_locals
 
-    print('caller loc', caller_locals)
+    global mod_ast_last_caller_locals
+    mod_ast_last_caller_locals = caller_locals
+
     for (v, k) in mod_ast_global_modifiers: caller_globals[k] = v
 
+    # pour locals in global
+    # allow sub-funcs to refer to funcs / class declared in the parent func
+    caller_globals = dict(caller_globals, **caller_locals)
+    
+    # print('in mod, locals', caller_locals)
+    # print('in mod, global', caller_globals)
+    
     exec(c, caller_globals, caller_locals)
 
     modfunc = caller_locals[func.__name__]
