@@ -59,13 +59,14 @@ def test_if_else():
     @hw
     def foo():
         a = A()
+        b = A()
 
         ifc = None
         elsec = None
         if a: ifc = True
         else: elsec = True
 
-        if not (ifc and elsec): raise Exception() 
+        if not (ifc and elsec): raise Exception()
 
         if True: pass
         else: raise Exception()
@@ -73,11 +74,46 @@ def test_if_else():
         e = False
         if e: raise Exception()
         else: pass
-                
-    foo()
 
-    
+        b <= 1 if a else 0
+        b.assign(mux(a, 1, 0))
+
+    # foo()
+
+from combra.dsl import WithAssign
+class A(WithAssign):
+    def __init__(self):
+        self.driver = None
+
+    def assign(self, that):
+        self.driver = that
+
+    def __le__(self, that):
+        raise Exception()
+
+def test_if():
+    @hw
+    def fo2o():
+        a = A()
+        b = A()
+
+        if True: pass # print('True!') 
+        with True: pass
+        # with __combra_if__(a):
+        #     __combra_control__()
+        #     ifc = True
+        # with __combra_else__():
+        #     __combra_control__()
+        #     with __combra_if__(b):
+        #         __combra_control__()
+        #         ifc = False
+        #     with __combra_else__():
+        #         __combra_control__()
+        #         elsec = True
+
+    fo2o()
+
 if __name__ == '__main__':
-    test_if_else()
+    test_if()
     # test_basic()
     # test_override_assigment_op()
