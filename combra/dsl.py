@@ -44,10 +44,11 @@ class OverrideIfElse(ast.NodeTransformer):
         else_body = node.orelse
 
         test_call = ast.Call(lineno=lineno, col_offset=col_offset,
-                             func=ast.Name(lineno=lineno,
-                                           col_offset=col_offset,
-                                           id='__combra_if__',
-                                           ctx=ast.Load()),
+                             func=ast.Name(
+                                 lineno=lineno,
+                                 col_offset=col_offset,
+                                 id='__combra_if_else__' if else_body else '__combra_if__',
+                                 ctx=ast.Load()),
                              args=[if_test],
                              keywords=[])
 
@@ -68,6 +69,8 @@ class OverrideIfElse(ast.NodeTransformer):
                                 optional_vars=None)],
                             body=if_body)
 
+        self.visit(withnode)
+
         if not else_body: return withnode
 
         # else body -> new with node
@@ -76,47 +79,99 @@ class OverrideIfElse(ast.NodeTransformer):
                                                 col_offset=col_offset,
                                                 id='__combra_else__',
                                                 ctx=ast.Load()),
-                                  args=[if_test],
+                                  args=[],
                                   keywords=[])
+
+        else_control_call = ast.Expr(lineno=lineno, col_offset=col_offset,
+                                     value=ast.Call(lineno=lineno, col_offset=col_offset,
+                                                    func=ast.Name(
+                                                        lineno=lineno,
+                                                        col_offset=col_offset,
+                                                        id='__combra_control__',
+                                                        ctx=ast.Load()),
+                                                    args=[],
+                                                    keywords=[]))
+
+        else_body.insert(0, else_control_call)
 
         withnode_else = ast.With(lineno=lineno, col_offset=col_offset,
                                  items = [ast.withitem(
-                                     context_expr=test_call,
+                                     context_expr=test_call_else,
                                      optional_vars=None)],
-                                 body=if_body)
+                                 body=else_body)
+
+        self.visit(withnode_else)
 
         return [withnode, withnode_else]
 
+class BlockContext:
+    stack = []
 
-class WithTest:
-    def test(self): return NotImplemented
+class ConditionalBlock:
+    def if_context(self): return NotImplemented
+    def if_with_else_context(self): return NotImplemented
+    def else_context(self): return NotImplemented
 
-class AbortCondition(Exception): pass
+class CustomConditionalBlock(ConditionalBlock): pass
 
-combra_control_abort = False
-class StaticBlock:
+class StaticBlockAbort(Exception): pass
+
+class StaticBlockContext(BlockContext): pass
+
+class StaticContextIf(StaticBlockContext):
     def __init__(self, cond):
         self.cond = bool(cond)
-
-    def __enter__(self):
-        global combra_control_abort
-        if not self.cond: combra_control_abort = True
-        else: combra_control_abort = False
-
+        BlockContext.stack.append(self)
+    def __enter__(self): pass
     def __exit__(self, ex_type, *args):
-        if ex_type is AbortCondition: return True
+        BlockContext.stack.pop()
+        if ex_type is StaticBlockAbort: return True
+
+class StaticContextIfElse(StaticBlockContext):
+    def __init__(self, cond):
+        self.cond = BlockContext.stack[-1].cond
+        BlockContext.stack.append(self)
+    def __enter__(self): pass
+    def __exit__(self, ex_type, *args):
+        BlockContext.stack.pop()
+        StaticContextIfElse_last_cond = self.cond
+        if ex_type is StaticBlockAbort: return True
+
+class StaticContextElse(StaticBlockContext):
+    def __init__(self):
+        self.cond = not StaticContextIfElse_last_cond
+        BlockContext.stack.append(self)
+    def __enter__(self): pass
+    def __exit__(self, ex_type, *args):
+        BlockContext.stack.pop()
+        if ex_type is StaticBlockAbort: return True
+
 
 def __combra_if__(test):
-    if isinstance(test, WithTest): return test.test()
-    return StaticBlock(test)
+    if isinstance(test, CustomConditionalBlock): return test.if_context()
+    return StaticContextIf(test)
+
+def __combra_if_else__(test):
+    if isinstance(test, CustomConditionalBlock): return test.if_with_else_context(test)
+    return StaticContextIfElse(test)
+
+def __combra_else__():
+    last_if_else = 
+    if isinstance(last_if_else, CustomConditionalBlock): return last_if_else.else_context()
+    return StaticContextElse()
 
 def __combra_control__():
-    if combra_control_abort: raise AbortCondition()
+    last_block = BlockContext.stack[-1]
+    if isinstance(last_block, StaticBlockContext) and not last_block.cond:
+        raise StaticBlockAbort()
 
 mod_ast_modifiers = [OverrideAssignmentOp(), OverrideIfElse()]
 mod_ast_global_modifiers = [(__combra_assign__, '__combra_assign__'),
                             (__combra_if__, '__combra_if__'),
-                            (__combra_control__, '__combra_control__')]
+                            (__combra_if_else__, '__combra_if_else__'),
+                            (__combra_control__, '__combra_control__'),
+                            (__combra_else__, '__combra_else__')]
+
 mod_ast_re_indent = re.compile(r'( *).+')
 def mod_ast(func):
     src, line_num = inspect.getsourcelines(func)
@@ -143,12 +198,13 @@ def mod_ast(func):
     # # inherit caller locals callback
     # mod_ast_inherit_locals(a.body[0])
 
-    print('ast before')
+    print('='*10+'ast before')
     print(astpretty.pprint(a))
-
 
     for mod in mod_ast_modifiers: a = mod.visit(a)
 
+    print('='*10+'ast after')
+    print(astpretty.pprint(a))
 
     # compile and exec code in previous global env
     c = compile(a, src_file, mode='exec')

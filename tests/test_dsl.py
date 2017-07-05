@@ -96,21 +96,10 @@ def test_if():
     def fo2o():
         a = A()
         b = A()
-
-        if True: pass # print('True!') 
-        with True: pass
-        # with __combra_if__(a):
-        #     __combra_control__()
-        #     ifc = True
-        # with __combra_else__():
-        #     __combra_control__()
-        #     with __combra_if__(b):
-        #         __combra_control__()
-        #         ifc = False
-        #     with __combra_else__():
-        #         __combra_control__()
-        #         elsec = True
-
+        if True:
+            print('first true')
+            if False: print('True!')
+        else: print('False!')
     fo2o()
 
 if __name__ == '__main__':
